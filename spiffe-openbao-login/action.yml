@@ -1,0 +1,16 @@
+name: SPIFFE OpenBao Login
+description: Exchange a JWT-SVID for a short-lived OpenBao token and revoke it in post
+inputs:
+  bao-address:
+    default: https://bao.ad.ddupan.top:8200
+  role:
+    description: Exact OpenBao jwt-spire role
+    required: true
+  audience:
+    default: openbao
+  socket-path:
+    default: /run/spire/agent-sockets/spire-agent.sock
+runs:
+  using: node20
+  main: dist/main.js
+  post: dist/post.js
