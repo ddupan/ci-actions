@@ -1,0 +1,40 @@
+name: Setup Nexus
+description: Configure anonymous Nexus endpoints for CI dependency downloads
+inputs:
+  nexus-url:
+    default: https://nexus.ad.ddupan.top
+  ansible:
+    default: 'false'
+  go:
+    default: 'false'
+  oci:
+    default: 'false'
+outputs:
+  oci-public:
+    value: ${{ steps.configure.outputs.oci-public }}
+  oci-hosted:
+    value: ${{ steps.configure.outputs.oci-hosted }}
+runs:
+  using: composite
+  steps:
+    - id: configure
+      shell: bash
+      env:
+        NEXUS_URL: ${{ inputs.nexus-url }}
+        ENABLE_ANSIBLE: ${{ inputs.ansible }}
+        ENABLE_GO: ${{ inputs.go }}
+        ENABLE_OCI: ${{ inputs.oci }}
+      run: |
+        set -euo pipefail
+        nexus_url="${NEXUS_URL%/}"
+        if [[ "$ENABLE_ANSIBLE" == true ]]; then
+          printf '%s\n' 'ANSIBLE_GALAXY_SERVER_LIST=nexus' \
+            "ANSIBLE_GALAXY_SERVER_NEXUS_URL=$nexus_url/repository/ansible-public/" >> "$GITHUB_ENV"
+        fi
+        if [[ "$ENABLE_GO" == true ]]; then
+          printf 'GOPROXY=%s/repository/go-public/\n' "$nexus_url" >> "$GITHUB_ENV"
+        fi
+        if [[ "$ENABLE_OCI" == true ]]; then
+          printf 'oci-public=%s/oci-public\noci-hosted=%s/oci-hosted\n' \
+            "$nexus_url" "$nexus_url" >> "$GITHUB_OUTPUT"
+        fi
