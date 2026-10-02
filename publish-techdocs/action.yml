@@ -1,0 +1,128 @@
+name: Publish TechDocs
+description: Build a repository's TechDocs and publish them to the shared SeaweedFS bucket
+inputs:
+  entity:
+    description: >-
+      <namespace>/<kind>/<name> of the catalog entity. Defaults to the entity in
+      catalog-info.yaml that carries backstage.io/techdocs-ref.
+    default: ''
+  source-dir:
+    default: .
+  bao-address:
+    default: https://bao.ad.ddupan.top:8200
+  role:
+    description: OpenBao jwt-spire role; it only matches jobs named `techdocs`
+    default: ci-techdocs-publisher
+  socket-path:
+    default: /run/spire/agent-sockets/spire-agent.sock
+  s3-endpoint:
+    default: http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333
+  bucket:
+    default: techdocs
+  techdocs-cli-version:
+    default: 1.12.0
+  techdocs-core-version:
+    default: 1.7.1
+runs:
+  using: composite
+  steps:
+    - name: Install mkdocs-techdocs-core
+      shell: bash
+      env:
+        CORE_VERSION: ${{ inputs.techdocs-core-version }}
+      run: |
+        set -euo pipefail
+        python3 -m venv "$RUNNER_TEMP/techdocs-venv"
+        # The WAN drops at random; retry the download rather than fail the job.
+        for attempt in 1 2 3 4 5; do
+          "$RUNNER_TEMP/techdocs-venv/bin/pip" install --quiet \
+            "mkdocs-techdocs-core==$CORE_VERSION" && break
+          [[ $attempt == 5 ]] && exit 1
+          sleep $((attempt * 5))
+        done
+        printf '%s\n' "$RUNNER_TEMP/techdocs-venv/bin" >>"$GITHUB_PATH"
+
+    - id: entity
+      name: Resolve catalog entity
+      shell: bash
+      env:
+        ENTITY: ${{ inputs.entity }}
+        SOURCE_DIR: ${{ inputs.source-dir }}
+      run: |
+        set -euo pipefail
+        if [[ -z "$ENTITY" ]]; then
+          ENTITY=$(python3 - "$SOURCE_DIR/catalog-info.yaml" <<'PY'
+        import sys, yaml
+        docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+        hits = [d for d in docs
+                if 'backstage.io/techdocs-ref' in d.get('metadata', {}).get('annotations', {})]
+        if len(hits) != 1:
+            sys.exit(f'expected exactly one entity with backstage.io/techdocs-ref, found {len(hits)}')
+        m = hits[0]['metadata']
+        print(f"{m.get('namespace', 'default')}/{hits[0]['kind']}/{m['name']}")
+        PY
+          )
+        fi
+        if [[ ! "$ENTITY" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
+          echo "invalid entity: $ENTITY" >&2
+          exit 1
+        fi
+        printf 'entity=%s\n' "$ENTITY" >>"$GITHUB_OUTPUT"
+
+    - name: Generate
+      shell: bash
+      env:
+        CLI_VERSION: ${{ inputs.techdocs-cli-version }}
+        SOURCE_DIR: ${{ inputs.source-dir }}
+      run: |
+        set -euo pipefail
+        npx --yes "@techdocs/cli@$CLI_VERSION" generate --no-docker \
+          --source-dir "$SOURCE_DIR" --output-dir "$RUNNER_TEMP/techdocs-site"
+
+    # Login, credential read, publish and revoke share one step so neither the
+    # OpenBao token nor the S3 keys reach GITHUB_ENV or a later step.
+    - name: Publish
+      shell: bash
+      env:
+        BAO_ADDR: ${{ inputs.bao-address }}
+        BAO_ROLE: ${{ inputs.role }}
+        SOCKET_PATH: ${{ inputs.socket-path }}
+        S3_ENDPOINT: ${{ inputs.s3-endpoint }}
+        BUCKET: ${{ inputs.bucket }}
+        CLI_VERSION: ${{ inputs.techdocs-cli-version }}
+        ENTITY: ${{ steps.entity.outputs.entity }}
+      run: |
+        set -euo pipefail
+        set +x
+        tmp=$(mktemp -d)
+        token=''
+        cleanup() {
+          if [[ -n "$token" ]]; then
+            curl -fsS -o /dev/null -X POST -H "X-Vault-Token: $token" \
+              "$BAO_ADDR/v1/auth/token/revoke-self" || true
+          fi
+          rm -rf -- "$tmp"
+        }
+        trap cleanup EXIT
+
+        spire-agent api fetch jwt -audience openbao -socketPath "$SOCKET_PATH" \
+          -output json >"$tmp/svid.json"
+        jq -er 'if type == "array" then .[0] else . end | .svids[0].svid' \
+          "$tmp/svid.json" >"$tmp/jwt"
+        jq -n --arg role "$BAO_ROLE" --rawfile jwt "$tmp/jwt" \
+          '{role: $role, jwt: ($jwt | rtrimstr("\n"))}' >"$tmp/login.json"
+        token=$(curl -fsS -X POST --data @"$tmp/login.json" \
+          "$BAO_ADDR/v1/auth/jwt-spire/login" | jq -er .auth.client_token)
+        curl -fsS -H "X-Vault-Token: $token" \
+          "$BAO_ADDR/v1/kv/data/k8s/techdocs-s3-publisher" >"$tmp/creds.json"
+        AWS_ACCESS_KEY_ID=$(jq -er .data.data.access_key "$tmp/creds.json")
+        AWS_SECRET_ACCESS_KEY=$(jq -er .data.data.secret_key "$tmp/creds.json")
+        export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION=us-east-1
+
+        npx --yes "@techdocs/cli@$CLI_VERSION" publish \
+          --publisher-type awsS3 \
+          --storage-name "$BUCKET" \
+          --awsEndpoint "$S3_ENDPOINT" \
+          --awsS3ForcePathStyle \
+          --entity "$ENTITY" \
+          --directory "$RUNNER_TEMP/techdocs-site"
