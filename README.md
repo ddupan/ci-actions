@@ -7,6 +7,11 @@ homelab Gitea Actions 的可复用安全构件。目前提供：
 - `setup-nexus`：为匿名读取配置 Ansible Galaxy、Go Modules 与 OCI repository 地址。
 - `publish-techdocs`：生成仓库的 TechDocs 并发布到共享的 SeaweedFS `techdocs` bucket。
 
+## 引用方式
+
+Gitea 的 `DEFAULT_ACTIONS_URL` 指向 github.com，简写 `panxiao81/ci-actions/...` 会被解析到
+GitHub 而失败；必须写完整 URL `https://git.ddupan.top/panxiao81/ci-actions/<action>@v1`。
+
 ## Runner 前提
 
 `spiffe-openbao-login` 不下载工具；runner image 必须包含 Node.js 20、`spire-agent`，并挂载
@@ -14,11 +19,11 @@ homelab Gitea Actions 的可复用安全构件。目前提供：
 管理，Action 不创建或扩大授权。
 
 ```yaml
-- uses: panxiao81/ci-actions/spiffe-openbao-login@v1
+- uses: https://git.ddupan.top/panxiao81/ci-actions/spiffe-openbao-login@v1
   with:
     role: ci-example
 
-- uses: panxiao81/ci-actions/setup-nexus@v1
+- uses: https://git.ddupan.top/panxiao81/ci-actions/setup-nexus@v1
   with:
     ansible: 'true'
     go: 'true'
@@ -51,7 +56,7 @@ jobs:
     runs-on: [self-hosted, pod]
     steps:
       - uses: actions/checkout@v4
-      - uses: panxiao81/ci-actions/publish-techdocs@v1
+      - uses: https://git.ddupan.top/panxiao81/ci-actions/publish-techdocs@v1
 ```
 
 登录、读取 S3 凭据、发布与吊销 token 在同一个 step 内完成，token 与 AK/SK 不写入
