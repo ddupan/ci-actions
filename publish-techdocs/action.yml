@@ -16,7 +16,7 @@ inputs:
   socket-path:
     default: /run/spire/agent-sockets/spire-agent.sock
   s3-endpoint:
-    default: http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333
+    default: https://s3.lab.ddupan.top
   bucket:
     default: techdocs
   techdocs-cli-version:
