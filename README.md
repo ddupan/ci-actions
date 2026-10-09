@@ -3,7 +3,7 @@
 homelab Gitea Actions 的可复用安全构件。目前提供：
 
 - `spiffe-openbao-login`：用 runner 的 JWT-SVID 换取短期 OpenBao token，并在 job 的
-  post 阶段主动吊销。
+  post 阶段尽力吊销（失败只告警，token 到 TTL 自然失效）。
 - `setup-nexus`：为匿名读取配置 Ansible Galaxy、Go Modules 与 OCI repository 地址。
 - `publish-techdocs`：生成仓库的 TechDocs 并发布到共享的 SeaweedFS `techdocs` bucket。
 
