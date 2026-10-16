@@ -5,6 +5,8 @@ homelab Gitea Actions 的可复用安全构件。目前提供：
 - `spiffe-openbao-login`：用 runner 的 JWT-SVID 换取短期 OpenBao token，并在 job 的
   post 阶段尽力吊销（失败只告警，token 到 TTL 自然失效）。
 - `setup-nexus`：为匿名读取配置 Ansible Galaxy、Go Modules 与 OCI repository 地址。
+- `setup-artifact-keeper`：让 Go、PyPI、Ansible Galaxy 与 Docker Hub 下载走 Artifact Keeper 的
+  匿名 pull-through 缓存。
 - `publish-techdocs`：生成仓库的 TechDocs 并发布到共享的 SeaweedFS `techdocs` bucket。
 
 ## 引用方式
@@ -38,6 +40,23 @@ token 不作为 Action output，也不上传 artifact/cache。
 `setup-nexus` 只配置匿名读取，不读取 OpenBao secret。正式发布账号建立后，应新增独立的
 Nexus login Action，并绑定精确 SPIFFE ID 与最小 OpenBao policy；不得让本 Action 读取
 管理员凭据。
+
+## setup-artifact-keeper
+
+按需打开各生态，只写环境变量和本机 Docker 配置，不读取 secret：
+
+```yaml
+- uses: https://git.ddupan.top/panxiao81/ci-actions/setup-artifact-keeper@v1
+  with:
+    go: 'true'      # GOPROXY；GOPRIVATE=git.ddupan.top 让自有模块直连
+    pypi: 'true'    # PIP_INDEX_URL、UV_DEFAULT_INDEX
+    ansible: 'true' # ANSIBLE_GALAXY_SERVER
+    docker: 'true'  # job dockerd 的 registry-mirrors，以及 buildx 新建 builder 的 BuildKit mirrors
+```
+
+`docker` 写 `/etc/docker/daemon.json` 后向 dockerd 发 SIGHUP 热加载，需在 job 里 sudo；只代理
+Docker Hub（`docker.io`）。BuildKit 的配置通过 `BUILDX_CONFIG` 下的 `buildkitd.default.toml`
+生效，只影响本 step 之后、未显式传 `--buildkitd-config` 的 `docker buildx create`。
 
 ## publish-techdocs
 

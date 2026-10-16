@@ -1,0 +1,51 @@
+name: Setup Artifact Keeper
+description: Route CI dependency downloads through the anonymous Artifact Keeper pull-through caches
+inputs:
+  url:
+    default: https://artifacts.lab.ddupan.top
+  go:
+    default: 'false'
+  pypi:
+    default: 'false'
+  ansible:
+    default: 'false'
+  docker:
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        AK_URL: ${{ inputs.url }}
+        ENABLE_GO: ${{ inputs.go }}
+        ENABLE_PYPI: ${{ inputs.pypi }}
+        ENABLE_ANSIBLE: ${{ inputs.ansible }}
+        ENABLE_DOCKER: ${{ inputs.docker }}
+      run: |
+        set -euo pipefail
+        url="${AK_URL%/}"
+        if [[ "$ENABLE_GO" == true ]]; then
+          # Own modules are not on the public proxy or sumdb.
+          printf '%s\n' "GOPROXY=$url/go/go-proxy" 'GOPRIVATE=git.ddupan.top' >> "$GITHUB_ENV"
+        fi
+        if [[ "$ENABLE_PYPI" == true ]]; then
+          printf '%s\n' "PIP_INDEX_URL=$url/pypi/pypi-proxy/simple/" \
+            "UV_DEFAULT_INDEX=$url/pypi/pypi-proxy/simple/" >> "$GITHUB_ENV"
+        fi
+        if [[ "$ENABLE_ANSIBLE" == true ]]; then
+          printf 'ANSIBLE_GALAXY_SERVER=%s/ansible/galaxy-proxy\n' "$url" >> "$GITHUB_ENV"
+        fi
+        if [[ "$ENABLE_DOCKER" == true ]]; then
+          # The job dockerd is already running (job_started hook); registry-mirrors
+          # is reloaded on SIGHUP.
+          sudo install -d /etc/docker
+          jq -n --arg m "$url" '{"registry-mirrors": [$m]}' | sudo tee /etc/docker/daemon.json >/dev/null
+          sudo pkill -HUP -x dockerd
+          # docker-container builders ignore dockerd's mirrors; buildx create reads
+          # this default config when no --buildkitd-config is given.
+          buildx_config="$RUNNER_TEMP/buildx"
+          mkdir -p "$buildx_config"
+          printf '[registry."docker.io"]\n  mirrors = ["%s"]\n' "${url#https://}" \
+            > "$buildx_config/buildkitd.default.toml"
+          printf 'BUILDX_CONFIG=%s\n' "$buildx_config" >> "$GITHUB_ENV"
+        fi
