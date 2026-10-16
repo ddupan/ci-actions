@@ -112,7 +112,10 @@ runs:
           # A user .npmrc rather than an env var, so npm in a build container with this HOME sees it too.
           # npm rewrites registry.npmjs.org URLs in package-lock.json to the configured registry.
           npm_home="${NPM_HOME_INPUT:-$HOME}"
+          # The file may come back from actions/cache or a persistent runner; keep one registry line.
           mkdir -p "$npm_home"
+          touch "$npm_home/.npmrc"
+          sed -i '/^registry=/d' "$npm_home/.npmrc"
           echo "registry=$url/npm/npm-proxy/" >> "$npm_home/.npmrc"
         fi
         if [[ "$ENABLE_DOCKER" == true ]]; then
