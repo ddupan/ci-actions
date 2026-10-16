@@ -11,6 +11,11 @@ inputs:
     default: 'false'
   docker:
     default: 'false'
+  gradle:
+    default: 'false'
+  gradle-user-home:
+    description: Where Gradle runs with GRADLE_USER_HOME (e.g. a directory mounted into a build container)
+    default: ''
 runs:
   using: composite
   steps:
@@ -21,6 +26,8 @@ runs:
         ENABLE_PYPI: ${{ inputs.pypi }}
         ENABLE_ANSIBLE: ${{ inputs.ansible }}
         ENABLE_DOCKER: ${{ inputs.docker }}
+        ENABLE_GRADLE: ${{ inputs.gradle }}
+        GRADLE_HOME_INPUT: ${{ inputs.gradle-user-home }}
       run: |
         set -euo pipefail
         url="${AK_URL%/}"
@@ -34,6 +41,43 @@ runs:
         fi
         if [[ "$ENABLE_ANSIBLE" == true ]]; then
           printf 'ANSIBLE_GALAXY_SERVER=%s/ansible/galaxy-proxy\n' "$url" >> "$GITHUB_ENV"
+        fi
+        if [[ "$ENABLE_GRADLE" == true ]]; then
+          # Gradle may run in a container without the job env, so the URL is written into the script.
+          init_d="${GRADLE_HOME_INPUT:-${GRADLE_USER_HOME:-$HOME/.gradle}}/init.d"
+          mkdir -p "$init_d"
+          cat > "$init_d/artifact-keeper.gradle" <<GRADLE
+          // Written by ci-actions/setup-artifact-keeper: Maven Central and the Gradle Plugin Portal go through
+          // the Artifact Keeper pull-through caches.
+          def central = '$url/maven/maven-central'
+          def pluginPortal = '$url/maven/gradle-plugins'
+
+          def redirect = { repos ->
+              repos.withType(MavenArtifactRepository).configureEach { repo ->
+                  def url = repo.url.toString()
+                  if (url.startsWith('https://repo.maven.apache.org/maven2') || url.startsWith('https://repo1.maven.org/maven2')) {
+                      repo.url = central
+                  } else if (url.startsWith('https://plugins.gradle.org/m2')) {
+                      repo.url = pluginPortal
+                  }
+              }
+          }
+
+          beforeSettings { settings ->
+              redirect(settings.pluginManagement.repositories)
+              redirect(settings.dependencyResolutionManagement.repositories)
+          }
+          settingsEvaluated { settings ->
+              // No pluginManagement repositories means the implicit Plugin Portal, which cannot be redirected.
+              if (settings.pluginManagement.repositories.isEmpty()) {
+                  settings.pluginManagement.repositories.maven { url = pluginPortal }
+              }
+          }
+          allprojects {
+              redirect(buildscript.repositories)
+              redirect(repositories)
+          }
+        GRADLE
         fi
         if [[ "$ENABLE_DOCKER" == true ]]; then
           # The job dockerd is already running (job_started hook); registry-mirrors
