@@ -5,7 +5,7 @@ homelab Gitea Actions 的可复用安全构件。目前提供：
 - `spiffe-openbao-login`：用 runner 的 JWT-SVID 换取短期 OpenBao token，并在 job 的
   post 阶段尽力吊销（失败只告警，token 到 TTL 自然失效）。
 - `setup-nexus`：为匿名读取配置 Ansible Galaxy、Go Modules 与 OCI repository 地址。
-- `setup-artifact-keeper`：让 Go、PyPI、Ansible Galaxy 与 Docker Hub 下载走 Artifact Keeper 的
+- `setup-artifact-keeper`：让 Go、PyPI、Ansible Galaxy、Maven（Gradle）与 Docker Hub 下载走 Artifact Keeper 的
   匿名 pull-through 缓存。
 - `publish-techdocs`：生成仓库的 TechDocs 并发布到共享的 SeaweedFS `techdocs` bucket。
 
@@ -52,7 +52,13 @@ Nexus login Action，并绑定精确 SPIFFE ID 与最小 OpenBao policy；不得
     pypi: 'true'    # PIP_INDEX_URL、UV_DEFAULT_INDEX
     ansible: 'true' # ANSIBLE_GALAXY_SERVER
     docker: 'true'  # job dockerd 的 registry-mirrors，以及 buildx 新建 builder 的 BuildKit mirrors
+    gradle: 'true'  # init script 把 Maven Central 与 Gradle Plugin Portal 改指缓存
+    gradle-user-home: /tmp/ci/gradle  # 可选；默认 $GRADLE_USER_HOME 或 ~/.gradle
 ```
+
+`gradle` 把 init script 写到 `<gradle-user-home>/init.d/`，URL 直接写进脚本，所以在容器里跑、读不到
+job 环境变量的 Gradle 也能用，只要容器的 `GRADLE_USER_HOME` 挂的是同一目录。只改写指向
+`repo.maven.apache.org`、`repo1.maven.org`、`plugins.gradle.org` 的仓库，其他仓库不动。
 
 `docker` 写 `/etc/docker/daemon.json` 后向 dockerd 发 SIGHUP 热加载，需在 job 里 sudo；只代理
 Docker Hub（`docker.io`）。BuildKit 的配置通过 `BUILDX_CONFIG` 下的 `buildkitd.default.toml`
