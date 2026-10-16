@@ -18,6 +18,8 @@ inputs:
     default: 'false'
   npm:
     default: 'false'
+  terraform:
+    default: 'false'
   npm-home:
     description: HOME that npm runs with (e.g. a directory mounted into a build container)
     default: ''
@@ -37,6 +39,7 @@ runs:
         ENABLE_DOCKER: ${{ inputs.docker }}
         ENABLE_GRADLE: ${{ inputs.gradle }}
         ENABLE_NPM: ${{ inputs.npm }}
+        ENABLE_TERRAFORM: ${{ inputs.terraform }}
         NPM_HOME_INPUT: ${{ inputs.npm-home }}
         GRADLE_HOME_INPUT: ${{ inputs.gradle-user-home }}
       run: |
@@ -117,6 +120,22 @@ runs:
           touch "$npm_home/.npmrc"
           sed -i '/^registry=/d' "$npm_home/.npmrc"
           echo "registry=$url/npm/npm-proxy/" >> "$npm_home/.npmrc"
+        fi
+        if [[ "$ENABLE_TERRAFORM" == true ]]; then
+          # Provider Network Mirror for the public registry only; other hosts (our signed registry) stay direct.
+          # A lock file's hashes are still checked against what the mirror serves.
+          cat > "$RUNNER_TEMP/artifact-keeper.tfrc" <<TFRC
+        provider_installation {
+          network_mirror {
+            url     = "$url/terraform/terraform-proxy/"
+            include = ["registry.terraform.io/*/*"]
+          }
+          direct {
+            exclude = ["registry.terraform.io/*/*"]
+          }
+        }
+        TFRC
+          printf 'TF_CLI_CONFIG_FILE=%s\n' "$RUNNER_TEMP/artifact-keeper.tfrc" >> "$GITHUB_ENV"
         fi
         if [[ "$ENABLE_DOCKER" == true ]]; then
           # The job dockerd is already running (job_started hook); registry-mirrors

@@ -5,7 +5,7 @@ homelab Gitea Actions 的可复用安全构件。目前提供：
 - `spiffe-openbao-login`：用 runner 的 JWT-SVID 换取短期 OpenBao token，并在 job 的
   post 阶段尽力吊销（失败只告警，token 到 TTL 自然失效）。
 - `setup-nexus`：为匿名读取配置 Ansible Galaxy、Go Modules 与 OCI repository 地址。
-- `setup-artifact-keeper`：让 Go、PyPI、Ansible Galaxy、Maven（Gradle）、npm、Go 工具链与 Docker Hub 下载走 Artifact Keeper 的
+- `setup-artifact-keeper`：让 Go、PyPI、Ansible Galaxy、Maven（Gradle）、npm、Go 工具链、Terraform provider 与 Docker Hub 下载走 Artifact Keeper 的
   匿名 pull-through 缓存。
 - `publish-techdocs`：生成仓库的 TechDocs 并发布到共享的 SeaweedFS `techdocs` bucket。
 
@@ -57,6 +57,7 @@ Nexus login Action，并绑定精确 SPIFFE ID 与最小 OpenBao policy；不得
     gradle-user-home: /tmp/ci/gradle  # 可选；默认 $GRADLE_USER_HOME 或 ~/.gradle
     npm: 'true'     # <npm-home>/.npmrc 的 registry
     npm-home: /tmp/ci/npm  # 可选；默认 $HOME
+    terraform: 'true'  # TF_CLI_CONFIG_FILE：registry.terraform.io 的 provider 走 network mirror
 ```
 
 `go-version-file` 读 `toolchain` 行，没有则读 `go` 行；只写到次版本（`go 1.27`）时取最新补丁版，
