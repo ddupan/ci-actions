@@ -8,6 +8,7 @@ homelab Gitea Actions 的可复用安全构件。目前提供：
 - `setup-artifact-keeper`：让 Go、PyPI、Ansible Galaxy、Maven（Gradle）、npm、Go 工具链、Terraform provider 与 Docker Hub 下载走 Artifact Keeper 的
   匿名 pull-through 缓存。
 - `publish-techdocs`：生成仓库的 TechDocs 并发布到共享的 SeaweedFS `techdocs` bucket。
+- `security-scan`：semgrep、gitleaks、trivy 报告模式扫描，结果汇总为一条 PR 评论。
 
 ## 引用方式
 
@@ -97,3 +98,45 @@ jobs:
 登录、读取 S3 凭据、发布与吊销 token 在同一个 step 内完成，token 与 AK/SK 不写入
 `GITHUB_ENV`，也不进入后续 step。所有仓库共用一个发布身份，任一仓库都能覆盖其他实体的
 文档；有外部仓库接入时应拆分为按仓库的 role 与 S3 身份。
+
+## security-scan
+
+报告模式：发现问题只在 PR 上评论（重跑原地更新同一条），从不让 step 失败；扫描器出错在报告里标 ❌。
+PR 上 semgrep 只报相对 merge-base 新增的问题，gitleaks 只扫 PR 的提交；trivy 查依赖漏洞，总是全量。
+非 PR 事件（schedule、workflow_dispatch）全量扫描，报告只写 job 日志。
+
+```yaml
+on:
+  pull_request:
+  schedule:
+    - cron: '17 3 * * 1'   # 依赖漏洞随时间出现，与 PR 无关
+jobs:
+  security-scan:
+    runs-on: [self-hosted, pod]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: https://git.ddupan.top/panxiao81/ci-actions/setup-artifact-keeper@v1
+        with:
+          pypi: 'true'   # semgrep 从 PyPI 缓存安装
+      - uses: https://git.ddupan.top/panxiao81/ci-actions/security-scan@v1
+        with:
+          scanners: semgrep,gitleaks,trivy   # 默认全开，按需去掉
+          semgrep-config: p/default          # 空格分隔；可写 p/java、p/golang 或仓库内规则文件
+```
+
+报告只列规则、位置和版本，不输出代码行：semgrep 的命中行和 gitleaks 的 Match 可能就是密钥本身。
+浅克隆也能用，PR 上 action 会自己补取到 merge-base 的历史。
+
+各仓库的差异写在**工具自己的配置文件**里，放在仓库根目录，action 不需要额外输入：
+
+| 需求 | 文件 |
+|---|---|
+| 排除目录 | `.semgrepignore`；`trivy.yaml` 的 `scan.skip-dirs` |
+| 已确认的误报、已轮换的历史密钥 | 代码里 `# nosemgrep: <rule>`；`.gitleaksignore`（报告里的 Fingerprint 列，确认已轮换后原样写入）；`.trivyignore` |
+| 自定义密钥规则 | `.gitleaks.toml` |
+| 漏洞级别阈值 | `trivy.yaml` 的 `severity` |
+
+⚠ 自定义 `.semgrepignore` 会**替换** semgrep 的默认忽略列表（`tests/`、`node_modules/` 等），不是追加；
+需要的条目自己写回，`:include .gitignore` 可以引入 `.gitignore`。
+
+gitleaks/trivy 从 GitHub release 下载并校验 sha256（`action.yml` 里与版本号一起固定），升级时两者一起改。
