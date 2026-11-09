@@ -15,6 +15,9 @@ homelab Gitea Actions 的可复用安全构件。目前提供：
 Gitea 的 `DEFAULT_ACTIONS_URL` 指向 github.com，简写 `panxiao81/ci-actions/...` 会被解析到
 GitHub 而失败；必须写完整 URL `https://git.ddupan.top/panxiao81/ci-actions/<action>@v1`。
 
+`v1` 随 main 自动移动（`.gitea/workflows/move-major-tag.yml`），合并后所有引用方立即生效，
+不用手动打 tag。不兼容的改动改用新的主版本。
+
 ## Runner 前提
 
 `spiffe-openbao-login` 不下载工具；runner image 必须包含 Node.js 20、`spire-agent`，并挂载
@@ -115,10 +118,7 @@ jobs:
     runs-on: [self-hosted, pod]
     steps:
       - uses: actions/checkout@v4
-      - uses: https://git.ddupan.top/panxiao81/ci-actions/setup-artifact-keeper@v1
-        with:
-          pypi: 'true'   # semgrep 从 PyPI 缓存安装
-      - uses: https://git.ddupan.top/panxiao81/ci-actions/security-scan@v1
+      - uses: https://git.ddupan.top/panxiao81/ci-actions/security-scan@v1  # 需要 job 里的 dockerd
         with:
           scanners: semgrep,gitleaks,trivy   # 默认全开，按需去掉
           semgrep-config: p/default          # 空格分隔；可写 p/java、p/golang 或仓库内规则文件

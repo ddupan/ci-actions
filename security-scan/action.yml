@@ -17,47 +17,6 @@ inputs:
 runs:
   using: composite
   steps:
-    # gitleaks/trivy have no Artifact Keeper cache and come from GitHub releases;
-    # the sha256 pins make a replaced release asset fail the install instead of
-    # running an unknown binary. Bump version and checksum together.
-    - name: Install scanners
-      shell: bash
-      env:
-        SCANNERS: ${{ inputs.scanners }}
-        SEMGREP_VERSION: 1.181.0
-        GITLEAKS_VERSION: 8.30.1
-        GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
-        TRIVY_VERSION: 0.76.0
-        TRIVY_SHA256: e24b1c51293c1b15e4ba8d45bbc7891ba053f90278ec2698f3562c993e145fe7
-      run: |
-        set -euo pipefail
-        bin=$RUNNER_TEMP/security-scan/bin
-        mkdir -p "$bin"
-        printf '%s\n' "$bin" >>"$GITHUB_PATH"
-        enabled() { [[ ",$SCANNERS," == *",$1,"* ]]; }
-        # The WAN drops at random; retry every download rather than fail the job.
-        if enabled semgrep; then
-          python3 -m venv "$RUNNER_TEMP/security-scan/venv"
-          for attempt in 1 2 3 4 5; do
-            "$RUNNER_TEMP/security-scan/venv/bin/pip" install --quiet "semgrep==$SEMGREP_VERSION" && break
-            [[ $attempt == 5 ]] && exit 1
-            sleep $((attempt * 5))
-          done
-          ln -sf "$RUNNER_TEMP/security-scan/venv/bin/semgrep" "$bin/semgrep"
-        fi
-        fetch() {  # <url> <sha256> <binary>
-          curl -fsSL --retry 5 --retry-all-errors -o "$RUNNER_TEMP/security-scan/dl.tgz" "$1"
-          echo "$2  $RUNNER_TEMP/security-scan/dl.tgz" | sha256sum -c --quiet
-          tar -xzf "$RUNNER_TEMP/security-scan/dl.tgz" -C "$bin" "$3"
-        }
-        enabled gitleaks && fetch \
-          "https://github.com/gitleaks/gitleaks/releases/download/v$GITLEAKS_VERSION/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
-          "$GITLEAKS_SHA256" gitleaks
-        enabled trivy && fetch \
-          "https://github.com/aquasecurity/trivy/releases/download/v$TRIVY_VERSION/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
-          "$TRIVY_SHA256" trivy
-        ls "$bin"
-
     # Findings never fail the step; a scanner error shows as ❌ in the report.
     # Per-repository tuning lives in each tool's own files in the repo
     # (.semgrepignore, .gitleaksignore, .gitleaks.toml, trivy.yaml, .trivyignore).
@@ -67,11 +26,23 @@ runs:
         SCANNERS: ${{ inputs.scanners }}
         SEMGREP_CONFIG: ${{ inputs.semgrep-config }}
         BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        # Docker Hub images, pulled through the Artifact Keeper mirror and pinned by digest.
+        # Renovate bumps these lines.
+        SEMGREP_IMAGE: semgrep/semgrep:1.181.0@sha256:81474464c1f07483ba0682a44787fd93c91397419762a04abe2bafaae396304b
+        GITLEAKS_IMAGE: zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+        TRIVY_IMAGE: aquasec/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222
       run: |
         set -uo pipefail
         out=$RUNNER_TEMP/security-scan/out
         mkdir -p "$out"
         enabled() { [[ ",$SCANNERS," == *",$1,"* ]]; }
+        # semgrep refuses to run unless the code is mounted at /src. Running as the
+        # job user keeps the reports readable and satisfies git's ownership check.
+        in_image() {  # <image> <args...>
+          local image=$1; shift
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+            -v "$PWD:/src" -v "$out:/out" -w /src "artifacts.lab.ddupan.top/$image" "$@"
+        }
         if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
           # The baseline needs the base commit and history back to the merge-base.
           [[ $(git rev-parse --is-shallow-repository) == true ]] && git fetch -q --unshallow origin
@@ -89,23 +60,23 @@ runs:
           # Registry rulesets are fetched from semgrep.dev over the WAN on every run.
           # Exit code >=2 is an error; findings alone exit 0.
           for attempt in 1 2 3; do
-            semgrep scan "${configs[@]}" --metrics=off --quiet --json \
-              --output "$out/semgrep.json" "${semgrep_args[@]}" && break
+            in_image "$SEMGREP_IMAGE" semgrep scan "${configs[@]}" --metrics=off --quiet --json \
+              --output /out/semgrep.json "${semgrep_args[@]}" && break
             rm -f "$out/semgrep.json"; sleep $((attempt * 5))
           done
         fi
 
         # --redact keeps secrets out of the report; with --exit-code 0, non-zero means an error.
         if enabled gitleaks; then
-          gitleaks git --no-banner --redact --exit-code 0 --report-format json \
-            --report-path "$out/gitleaks.json" "${gitleaks_args[@]}" . || rm -f "$out/gitleaks.json"
+          in_image "$GITLEAKS_IMAGE" git --no-banner --redact --exit-code 0 --report-format json \
+            --report-path /out/gitleaks.json "${gitleaks_args[@]}" . || rm -f "$out/gitleaks.json"
         fi
 
         # Vulnerabilities only: secrets belong to gitleaks. The DB comes from mirror.gcr.io.
         if enabled trivy; then
           for attempt in 1 2 3; do
-            trivy fs --scanners vuln --no-progress --quiet --format json \
-              --output "$out/trivy.json" . && break
+            in_image "$TRIVY_IMAGE" fs --scanners vuln --no-progress --quiet --format json \
+              --output /out/trivy.json . && break
             rm -f "$out/trivy.json"; sleep $((attempt * 5))
           done
         fi
