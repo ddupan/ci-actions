@@ -115,11 +115,12 @@ on:
     - cron: '17 3 * * 1'   # 依赖漏洞随时间出现，与 PR 无关
 jobs:
   security-scan:
-    runs-on: [self-hosted, pod]
+    runs-on: [cloud]   # 不需要 Docker 和内网，也可以用 [self-hosted, pod]
     steps:
       - uses: actions/checkout@v4
-      - uses: https://git.ddupan.top/panxiao81/ci-actions/security-scan@v1  # 需要 job 里的 dockerd
+      - uses: https://git.ddupan.top/panxiao81/ci-actions/security-scan@v1
         with:
+          cloud: 'true'                      # 云端 runner：扫描器从 GitHub、PyPI 下载；内网 runner 不写
           scanners: semgrep,gitleaks,trivy   # 默认全开，按需去掉
           semgrep-config: p/default          # 空格分隔；可写 p/java、p/golang 或仓库内规则文件
 ```
@@ -139,4 +140,6 @@ jobs:
 ⚠ 自定义 `.semgrepignore` 会**替换** semgrep 的默认忽略列表（`tests/`、`node_modules/` 等），不是追加；
 需要的条目自己写回，`:include .gitignore` 可以引入 `.gitignore`。
 
-gitleaks/trivy 从 GitHub release 下载并校验 sha256（`action.yml` 里与版本号一起固定），升级时两者一起改。
+扫描器直接装在 runner 上，不需要 Docker：semgrep 从 PyPI 装进 venv，gitleaks/trivy 从 GitHub release
+下载，并用同一 release 的 checksums 文件校验。内网 runner 经 Artifact Keeper 的 PyPI 与 github-releases
+缓存下载，`cloud: 'true'` 时直连。版本号固定在 `action.yml`，由 Renovate 更新。
