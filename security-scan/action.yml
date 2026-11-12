@@ -14,9 +14,60 @@ inputs:
     default: 'true'
   token:
     default: ${{ github.token }}
+  cloud:
+    description: >-
+      Runner off the LAN (runs-on: [cloud]): download the scanners from GitHub and PyPI
+      instead of the Artifact Keeper caches
+    default: 'false'
 runs:
   using: composite
   steps:
+    # Plain binaries, no Docker, so the job also runs on the cloud pool. On the LAN the
+    # downloads go through Artifact Keeper, so a GitHub hiccup does not fail the job.
+    # Release archives are checked against the release's own checksums file.
+    - name: Install scanners
+      shell: bash
+      env:
+        SCANNERS: ${{ inputs.scanners }}
+        CLOUD: ${{ inputs.cloud }}
+        # Renovate bumps these lines.
+        SEMGREP_VERSION: 1.185.0  # renovate: datasource=pypi depName=semgrep
+        GITLEAKS_VERSION: 8.30.1  # renovate: datasource=github-releases depName=gitleaks/gitleaks
+        TRIVY_VERSION: 0.76.2  # renovate: datasource=github-releases depName=aquasecurity/trivy
+      run: |
+        set -euo pipefail
+        dir=$RUNNER_TEMP/security-scan
+        bin=$dir/bin
+        mkdir -p "$bin"
+        echo "$bin" >> "$GITHUB_PATH"
+        enabled() { [[ ",$SCANNERS," == *",$1,"* ]]; }
+        if [[ "$CLOUD" == true ]]; then
+          releases=https://github.com
+          pypi=https://pypi.org/simple/
+        else
+          releases=https://artifacts.lab.ddupan.top/api/v1/repositories/github-releases/download
+          pypi=https://artifacts.lab.ddupan.top/pypi/pypi-proxy/simple/
+        fi
+        release() {  # <owner/repo> <version> <archive> <checksums file> <binary>
+          local url="$releases/$1/releases/download/v$2"
+          curl -fsSL --retry 5 --retry-all-errors -o "$dir/$3" "$url/$3"
+          curl -fsSL --retry 5 --retry-all-errors -o "$dir/$4" "$url/$4"
+          # No line for the archive leaves sha256sum nothing to check, which fails too.
+          (cd "$dir" && awk -v f="$3" '$2 == f' "$4" | sha256sum -c --quiet)
+          tar -xzf "$dir/$3" -C "$bin" "$5"
+        }
+        if enabled semgrep; then
+          python3 -m venv "$dir/venv"
+          "$dir/venv/bin/pip" install --quiet --disable-pip-version-check --index-url "$pypi" \
+            "semgrep==$SEMGREP_VERSION"
+          ln -sf "$dir/venv/bin/semgrep" "$bin/semgrep"
+        fi
+        enabled gitleaks && release gitleaks/gitleaks "$GITLEAKS_VERSION" \
+          "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" "gitleaks_${GITLEAKS_VERSION}_checksums.txt" gitleaks
+        enabled trivy && release aquasecurity/trivy "$TRIVY_VERSION" \
+          "trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" "trivy_${TRIVY_VERSION}_checksums.txt" trivy
+        ls "$bin"
+
     # Findings never fail the step; a scanner error shows as ❌ in the report.
     # Per-repository tuning lives in each tool's own files in the repo
     # (.semgrepignore, .gitleaksignore, .gitleaks.toml, trivy.yaml, .trivyignore).
@@ -26,23 +77,11 @@ runs:
         SCANNERS: ${{ inputs.scanners }}
         SEMGREP_CONFIG: ${{ inputs.semgrep-config }}
         BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        # Docker Hub images, pulled through the Artifact Keeper mirror and pinned by digest.
-        # Renovate bumps these lines.
-        SEMGREP_IMAGE: semgrep/semgrep:1.185.0@sha256:67518c174185a2043fdbed16c70631b79209499b3671178e7194379b48295a0d
-        GITLEAKS_IMAGE: zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
-        TRIVY_IMAGE: aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb
       run: |
         set -uo pipefail
         out=$RUNNER_TEMP/security-scan/out
         mkdir -p "$out"
         enabled() { [[ ",$SCANNERS," == *",$1,"* ]]; }
-        # semgrep refuses to run unless the code is mounted at /src. Running as the
-        # job user keeps the reports readable and satisfies git's ownership check.
-        in_image() {  # <image> <args...>
-          local image=$1; shift
-          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
-            -v "$PWD:/src" -v "$out:/out" -w /src "artifacts.lab.ddupan.top/$image" "$@"
-        }
         if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
           # The baseline needs the base commit and history back to the merge-base.
           [[ $(git rev-parse --is-shallow-repository) == true ]] && git fetch -q --unshallow origin
@@ -60,23 +99,23 @@ runs:
           # Registry rulesets are fetched from semgrep.dev over the WAN on every run.
           # Exit code >=2 is an error; findings alone exit 0.
           for attempt in 1 2 3; do
-            in_image "$SEMGREP_IMAGE" semgrep scan "${configs[@]}" --metrics=off --quiet --json \
-              --output /out/semgrep.json "${semgrep_args[@]}" && break
+            semgrep scan "${configs[@]}" --metrics=off --quiet --json \
+              --output "$out/semgrep.json" "${semgrep_args[@]}" && break
             rm -f "$out/semgrep.json"; sleep $((attempt * 5))
           done
         fi
 
         # --redact keeps secrets out of the report; with --exit-code 0, non-zero means an error.
         if enabled gitleaks; then
-          in_image "$GITLEAKS_IMAGE" git --no-banner --redact --exit-code 0 --report-format json \
-            --report-path /out/gitleaks.json "${gitleaks_args[@]}" . || rm -f "$out/gitleaks.json"
+          gitleaks git --no-banner --redact --exit-code 0 --report-format json \
+            --report-path "$out/gitleaks.json" "${gitleaks_args[@]}" . || rm -f "$out/gitleaks.json"
         fi
 
         # Vulnerabilities only: secrets belong to gitleaks. The DB comes from mirror.gcr.io.
         if enabled trivy; then
           for attempt in 1 2 3; do
-            in_image "$TRIVY_IMAGE" fs --scanners vuln --no-progress --quiet --format json \
-              --output /out/trivy.json . && break
+            trivy fs --scanners vuln --no-progress --quiet --format json \
+              --output "$out/trivy.json" . && break
             rm -f "$out/trivy.json"; sleep $((attempt * 5))
           done
         fi

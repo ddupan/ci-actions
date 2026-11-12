@@ -4,10 +4,10 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "composite action 里 docker run 的镜像",
+      "description": "composite action 里带 renovate 注释的版本号",
       "managerFilePatterns": ["/(^|/)action\\.yml$/"],
-      "matchStrings": ["_IMAGE: (?<depName>[^:\\s]+):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"],
-      "datasourceTemplate": "docker"
+      "matchStrings": ["_VERSION: (?<currentValue>\\S+)\\s+# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)"],
+      "extractVersionTemplate": "^v?(?<version>.+)$"
     }
   ]
 }
