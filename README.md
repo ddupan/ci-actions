@@ -9,6 +9,8 @@ homelab Gitea Actions 的可复用安全构件。目前提供：
   匿名 pull-through 缓存。
 - `publish-techdocs`：生成仓库的 TechDocs 并发布到共享的 SeaweedFS `techdocs` bucket。
 - `security-scan`：semgrep、gitleaks、trivy 报告模式扫描，结果汇总为一条 PR 评论。
+- `upgrade-review`：coding agent 评审 Renovate 的依赖升级 PR，shell 跑在一次性 OpenSandbox VM 里，见
+  [`upgrade-review/README.md`](upgrade-review/README.md)。
 
 ## 引用方式
 

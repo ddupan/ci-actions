@@ -1,0 +1,52 @@
+name: Upgrade Review
+description: Review a dependency-upgrade PR with a coding agent whose shell runs in a disposable OpenSandbox VM, and post the verdict as a PR comment (report mode)
+inputs:
+  bao-role:
+    description: OpenBao jwt-spire role that can read the gateway key, the OpenSandbox key and the bot token
+    default: ci-upgrade-review
+  model:
+    default: gpt-6-luna
+  key-id:
+    description: AI gateway key at kv/k8s/ai-gateway-keys/<key-id>; revoking it disables the review
+    default: upgrade-agent
+  extra-context-marker:
+    description: >-
+      Also hand the agent the PR comment that starts with this HTML comment, e.g. a rendered
+      diff another job of the same workflow posted (the job must `needs:` that job)
+    default: ''
+  sandbox-image:
+    description: Image of the sandbox VM the agent's shell runs in (default in review.py)
+    default: ''
+runs:
+  using: composite
+  steps:
+    # The checkout is only packed into the sandbox; no credentials left in .git/config.
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+    - uses: https://git.ddupan.top/panxiao81/ci-actions/setup-artifact-keeper@v1
+      with:
+        pypi: 'true'
+        npm: 'true'
+    - uses: https://git.ddupan.top/panxiao81/ci-actions/spiffe-openbao-login@v1
+      continue-on-error: true
+      with:
+        role: ${{ inputs.bao-role }}
+    # Report mode: every failure is a warning and the step exits 0, so it never blocks automerge.
+    - name: Review
+      shell: bash
+      env:
+        GITEA_TOKEN: ${{ github.token }}
+        UPGRADE_REVIEW_MODEL: ${{ inputs.model }}
+        UPGRADE_REVIEW_KEY_ID: ${{ inputs.key-id }}
+        UPGRADE_REVIEW_EXTRA_CONTEXT_MARKER: ${{ inputs.extra-context-marker }}
+        UPGRADE_REVIEW_SANDBOX_IMAGE: ${{ inputs.sandbox-image }}
+      run: |
+        skip() { echo "::warning::升级评审跳过：$1"; exit 0; }
+        [[ -n "${BAO_TOKEN:-}" ]] || skip "没有拿到 OpenBao token（role ${{ inputs.bao-role }}）"
+        node -e 'process.exit(+process.versions.node.split(".")[0] >= 22 ? 0 : 1)' ||
+          skip "pi 需要 Node >= 22，runner 上是 $(node --version 2>&1)"
+        (cd "$GITHUB_ACTION_PATH" && npm ci --no-audit --no-fund --loglevel=error) || skip 'npm ci 失败'
+        python3 -m pip install --user --break-system-packages --quiet uv==0.11.7 || skip '安装 uv 失败'
+        export PATH="$HOME/.local/bin:$PATH"
+        uv run --script "$GITHUB_ACTION_PATH/review.py" || skip 'uv run 失败'
