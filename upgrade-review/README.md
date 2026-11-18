@@ -43,7 +43,7 @@ CI 若在 PR 上贴了对评审有用的评论（例如 homelab-infra 的 flux �
   环境里有网关 key 与 sandbox key，本地 read 能读到 `/proc/<pid>/environ`。
 - sandbox 是 OpenSandbox 的一次性 Kata VM（2 CPU/3GiB），只有 `git archive HEAD` 的源码；egress 策略
   拒绝 10/8、172.16/12、192.168/16、100.64/10、169.254/16，公网放行。评审结束即删除，job 被杀时按
-  timeout（20 分钟）过期。
+  timeout（35 分钟）过期。
 - 需要的 Bao 读取：`kv/k8s/ai-gateway-keys/<key-id>`、`kv/k8s/opensandbox-api`、`kv/k8s/upgrade-agent`、
   `kv/k8s/otel-collector`（homelab-infra `infrastructure/openbao/terraform/policies/ci-upgrade-review.hcl`）。
   在 key UI 吊销网关 key 即停用评审。
