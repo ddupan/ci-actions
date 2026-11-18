@@ -110,7 +110,11 @@ class Sandbox:
                 'metadata': {'purpose': 'upgrade-review', **labels},
                 'networkPolicy': {'defaultAction': 'allow',
                                   'egress': [{'action': 'deny', 'target': c} for c in PRIVATE]}}
-        self.id = request(f'{SANDBOX_API}/v1/sandboxes', 'POST', body, self.h)['id']
+        # 创建请求要等到 Pod Running 才返回，节点上没有镜像时光拉镜像就远超 request() 的 30 秒。
+        req = urllib.request.Request(f'{SANDBOX_API}/v1/sandboxes', data=json.dumps(body).encode(), method='POST',
+                                     headers={**self.h, 'Content-Type': 'application/json'})
+        with urllib.request.urlopen(req, timeout=600) as r:
+            self.id = json.load(r)['id']
         self.execd = f'{SANDBOX_API}/v1/sandboxes/{self.id}/proxy/44772'
         deadline = time.monotonic() + 300
         while (state := request(f'{SANDBOX_API}/v1/sandboxes/{self.id}', headers=self.h)['status']['state']) != 'Running':
