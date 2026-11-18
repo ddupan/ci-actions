@@ -58,7 +58,7 @@ SANDBOX_IMAGE = os.environ.get('UPGRADE_REVIEW_SANDBOX_IMAGE') or (
 PRIVATE = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10', '169.254.0.0/16']
 TOOLS = 'bash,submit_review'
 # 一次评审的墙钟上限。超时即杀掉 pi，按失败处理；sandbox 多留几分钟后自行过期。
-TIMEOUT = 900
+TIMEOUT = 1800
 LABEL = {'safe': '✅ safe', 'needs_review': '⚠️ needs_review', 'unsafe': '❌ unsafe'}
 # CI 的 pod job 跑在 sandbox 集群，解析不了 homelab 的 Service 名：走 LAN 入口（collector 的
 # 4319，bearer token，只进 traces 管道）。
