@@ -1,0 +1,13 @@
+# Renovate PR 的升级评审（ci-actions/upgrade-review），结论以评论贴回 PR，仅供参考。
+name: upgrade-review
+
+on:
+  pull_request:
+
+jobs:
+  # job id 是 SPIFFE ID 的一部分（bao role ci-upgrade-review），改名会登录失败。
+  upgrade-review:
+    if: github.event.pull_request.user.login == 'renovate-bot'
+    runs-on: [self-hosted]
+    steps:
+      - uses: https://git.ddupan.top/panxiao81/ci-actions/upgrade-review@v1
