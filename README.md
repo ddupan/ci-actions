@@ -1,6 +1,6 @@
 # ci-actions
 
-homelab Gitea Actions 的可复用安全构件。目前提供：
+homelab CI（Gitea Actions 与 GitHub Actions）的可复用安全构件。目前提供：
 
 - `spiffe-openbao-login`：用 runner 的 JWT-SVID 换取短期 OpenBao token，并在 job 的
   post 阶段尽力吊销（失败只告警，token 到 TTL 自然失效）。
@@ -14,10 +14,11 @@ homelab Gitea Actions 的可复用安全构件。目前提供：
 
 ## 引用方式
 
-Gitea 的 `DEFAULT_ACTIONS_URL` 指向 github.com，简写 `panxiao81/ci-actions/...` 会被解析到
-GitHub 而失败；必须写完整 URL `https://git.ddupan.top/panxiao81/ci-actions/<action>@v1`。
+写 `ddupan/ci-actions/<action>@v1`。仓库在 GitHub（`github.com/ddupan/ci-actions`，公开），
+Gitea 的 `DEFAULT_ACTIONS_URL` 指向 github.com，所以同一写法在 Gitea 和 GitHub Actions 上都能解析。
+`git.ddupan.top/panxiao81/ci-actions` 已归档，只读，旧的完整 URL 引用还能用但不再更新。
 
-`v1` 随 main 自动移动（`.gitea/workflows/move-major-tag.yml`），合并后所有引用方立即生效，
+`v1` 随 main 自动移动（`.github/workflows/move-major-tag.yml`），合并后所有引用方立即生效，
 不用手动打 tag。不兼容的改动改用新的主版本。
 
 ## Runner 前提
@@ -27,11 +28,11 @@ GitHub 而失败；必须写完整 URL `https://git.ddupan.top/panxiao81/ci-acti
 管理，Action 不创建或扩大授权。
 
 ```yaml
-- uses: https://git.ddupan.top/panxiao81/ci-actions/spiffe-openbao-login@v1
+- uses: ddupan/ci-actions/spiffe-openbao-login@v1
   with:
     role: ci-example
 
-- uses: https://git.ddupan.top/panxiao81/ci-actions/setup-nexus@v1
+- uses: ddupan/ci-actions/setup-nexus@v1
   with:
     ansible: 'true'
     go: 'true'
@@ -52,7 +53,7 @@ Nexus login Action，并绑定精确 SPIFFE ID 与最小 OpenBao policy；不得
 按需打开各生态，只写环境变量和本机 Docker 配置，不读取 secret：
 
 ```yaml
-- uses: https://git.ddupan.top/panxiao81/ci-actions/setup-artifact-keeper@v1
+- uses: ddupan/ci-actions/setup-artifact-keeper@v1
   with:
     go: 'true'      # GOPROXY；GOPRIVATE=git.ddupan.top 让自有模块直连
     go-version-file: go.mod  # 可选；从缓存装 Go 工具链，替代 actions/setup-go
@@ -97,7 +98,7 @@ jobs:
     runs-on: [self-hosted, pod]
     steps:
       - uses: actions/checkout@v4
-      - uses: https://git.ddupan.top/panxiao81/ci-actions/publish-techdocs@v1
+      - uses: ddupan/ci-actions/publish-techdocs@v1
 ```
 
 登录、读取 S3 凭据、发布与吊销 token 在同一个 step 内完成，token 与 AK/SK 不写入
@@ -120,7 +121,7 @@ jobs:
     runs-on: [cloud]   # 不需要 Docker 和内网，也可以用 [self-hosted, pod]
     steps:
       - uses: actions/checkout@v4
-      - uses: https://git.ddupan.top/panxiao81/ci-actions/security-scan@v1
+      - uses: ddupan/ci-actions/security-scan@v1
         with:
           cloud: 'true'                      # 云端 runner：扫描器从 GitHub、PyPI 下载；内网 runner 不写
           scanners: semgrep,gitleaks,trivy   # 默认全开，按需去掉
