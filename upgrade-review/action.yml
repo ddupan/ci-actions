@@ -24,11 +24,11 @@ runs:
     - uses: actions/checkout@v7
       with:
         persist-credentials: false
-    - uses: https://git.ddupan.top/panxiao81/ci-actions/setup-artifact-keeper@v1
+    - uses: ddupan/ci-actions/setup-artifact-keeper@v1
       with:
         pypi: 'true'
         npm: 'true'
-    - uses: https://git.ddupan.top/panxiao81/ci-actions/spiffe-openbao-login@v1
+    - uses: ddupan/ci-actions/spiffe-openbao-login@v1
       continue-on-error: true
       with:
         role: ${{ inputs.bao-role }}

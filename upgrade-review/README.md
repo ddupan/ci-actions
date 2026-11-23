@@ -25,7 +25,7 @@ jobs:
     if: github.event.pull_request.user.login == 'renovate-bot'
     runs-on: [self-hosted]
     steps:
-      - uses: https://git.ddupan.top/panxiao81/ci-actions/upgrade-review@v1
+      - uses: ddupan/ci-actions/upgrade-review@v1
 ```
 
 再把 Bot 账号加为只读 collaborator（restricted 账号看不到没加入的仓库）：
