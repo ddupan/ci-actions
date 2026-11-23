@@ -1,7 +1,7 @@
 'use strict';
 const fs = require('node:fs');
 const crypto = require('node:crypto');
-const { spawnSync } = require('node:child_process');
+const { jwtSvid } = require('../../lib/svid.js');
 
 const input = (name, fallback = '') => process.env[`INPUT_${name.toUpperCase()}`] || fallback;
 function appendCommand(file, name, value) {
@@ -14,13 +14,9 @@ async function main() {
   const address = input('BAO-ADDRESS', 'https://bao.ad.ddupan.top:8200').replace(/\/$/, '');
   const role = input('ROLE');
   const audience = input('AUDIENCE', 'openbao');
-  const socket = input('SOCKET-PATH', '/run/spire/agent-sockets/spire-agent.sock').replace(/^unix:\/\//, '');
+  const socket = input('SOCKET-PATH', '/run/spire/agent-sockets/spire-agent.sock');
   if (!role) throw new Error('input role is required');
-  const result = spawnSync('spire-agent', ['api', 'fetch', 'jwt', '-audience', audience,
-    '-socketPath', socket, '-output', 'json'], { encoding: 'utf8', maxBuffer: 16777216 });
-  if (result.status !== 0) throw new Error(`spire-agent JWT fetch failed: ${result.stderr.trim()}`);
-  const jwt = JSON.parse(result.stdout)?.[0]?.svids?.[0]?.svid;
-  if (!jwt) throw new Error('spire-agent returned no JWT-SVID');
+  const jwt = await jwtSvid(audience, socket);
   const response = await fetch(`${address}/v1/auth/jwt-spire/login`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ role, jwt }), signal: AbortSignal.timeout(15000),

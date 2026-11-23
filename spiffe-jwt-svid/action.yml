@@ -1,0 +1,14 @@
+name: SPIFFE JWT-SVID
+description: A JWT-SVID for one audience, from the local SPIRE agent or, on GitHub, via spire-identity-exchange
+inputs:
+  audience:
+    description: Audience of the SVID (e.g. zot)
+    required: true
+  socket-path:
+    default: /run/spire/agent-sockets/spire-agent.sock
+outputs:
+  svid:
+    description: The JWT-SVID (masked in logs)
+runs:
+  using: node20
+  main: dist/main.js

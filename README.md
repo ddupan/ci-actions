@@ -2,6 +2,7 @@
 
 homelab CI（Gitea Actions 与 GitHub Actions）的可复用安全构件。目前提供：
 
+- `spiffe-jwt-svid`：取一个 JWT-SVID（本地 SPIRE agent，或 GitHub 上经 spire-identity-exchange）。
 - `spiffe-openbao-login`：用 runner 的 JWT-SVID 换取短期 OpenBao token，并在 job 的
   post 阶段尽力吊销（失败只告警，token 到 TTL 自然失效）。
 - `setup-nexus`：为匿名读取配置 Ansible Galaxy、Go Modules 与 OCI repository 地址。
@@ -23,9 +24,28 @@ Gitea 的 `DEFAULT_ACTIONS_URL` 指向 github.com，所以同一写法在 Gitea 
 
 ## Runner 前提
 
-`spiffe-openbao-login` 不下载工具；runner image 必须包含 Node.js 20、`spire-agent`，并挂载
-可访问的 SPIFFE Workload API socket。身份注册、OpenBao role 与 policy 仍由基础设施 IaC
-管理，Action 不创建或扩大授权。
+`spiffe-openbao-login` 与 `spiffe-jwt-svid` 不下载工具，JWT-SVID 的来源按 runner 自动选择（`lib/svid.js`）：
+
+- 有 SPIFFE Workload API socket（Gitea 的一次性 executor）：用 `spire-agent api fetch jwt`，runner
+  image 需带 Node.js 20 与 `spire-agent`。
+- GitHub Actions 跑在 homelab ARC runner（`runs-on: homelab`）上：把 runner Pod 的 projected token
+  和 job 的 GitHub OIDC token 交给 spire-identity-exchange 换 SVID（homelab-infra
+  `platform/sandbox-identity-exchange`）。job 需要 `permissions: id-token: write`；SPIFFE ID 是
+  `ci/github/<owner>/<repo>/<workflow>`，由 homelab-infra `platform/spire/github-ci.yaml` 的 entry 决定。
+
+身份注册、OpenBao role 与 policy 仍由基础设施 IaC 管理，Action 不创建或扩大授权。
+
+`spiffe-jwt-svid` 只输出一个 SVID（`steps.<id>.outputs.svid`，日志里已遮蔽），例如推 zot：
+
+```yaml
+- id: svid
+  uses: ddupan/ci-actions/spiffe-jwt-svid@v1
+  with:
+    audience: zot
+- run: echo "$SVID" | docker login zot-push.lab.ddupan.top --username zot --password-stdin
+  env:
+    SVID: ${{ steps.svid.outputs.svid }}
+```
 
 ```yaml
 - uses: ddupan/ci-actions/spiffe-openbao-login@v1
