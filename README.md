@@ -104,8 +104,12 @@ Docker Hub（`docker.io`）。BuildKit 的配置通过 `BUILDX_CONFIG` 下的 `b
 ## publish-techdocs
 
 仓库根目录需要 `mkdocs.yml`、`docs/index.md`，以及带 `backstage.io/techdocs-ref` 的
-`catalog-info.yaml`。workflow 的 **job id 必须是 `techdocs`**：OpenBao role
-`ci-techdocs-publisher` 只接受 `spiffe://ddupan.top/ci/panxiao81/*/techdocs`。
+`catalog-info.yaml`。OpenBao role `ci-techdocs-publisher` 只接受以 `techdocs` 结尾的 SPIFFE ID：
+
+- Gitea：**job id 必须是 `techdocs`**（`spiffe://ddupan.top/ci/panxiao81/<repo>/techdocs`）。
+- GitHub：**workflow 文件必须是 `.github/workflows/techdocs.yml`**，job 跑在 `runs-on: homelab`、带
+  `permissions: id-token: write`，并在 homelab-infra `platform/spire/github-ci.yaml` 登记 entry
+  （`spiffe://ddupan.top/ci/github/<owner>/<repo>/techdocs`）。runner 镜像已带 Python 3 与 Node。
 
 ```yaml
 on:

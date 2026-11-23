@@ -79,14 +79,22 @@ runs:
         npx --yes "@techdocs/cli@$CLI_VERSION" generate --no-docker \
           --source-dir "$SOURCE_DIR" --output-dir "$RUNNER_TEMP/techdocs-site"
 
+    # The JWT-SVID from the local SPIRE agent (Gitea executors) or, on the homelab ARC runners,
+    # from spire-identity-exchange (that needs `permissions: id-token: write` in the job).
+    - id: svid
+      uses: ddupan/ci-actions/spiffe-jwt-svid@v1
+      with:
+        audience: openbao
+        socket-path: ${{ inputs.socket-path }}
+
     # Login, credential read, publish and revoke share one step so neither the
     # OpenBao token nor the S3 keys reach GITHUB_ENV or a later step.
     - name: Publish
       shell: bash
       env:
+        SVID: ${{ steps.svid.outputs.svid }}
         BAO_ADDR: ${{ inputs.bao-address }}
         BAO_ROLE: ${{ inputs.role }}
-        SOCKET_PATH: ${{ inputs.socket-path }}
         S3_ENDPOINT: ${{ inputs.s3-endpoint }}
         BUCKET: ${{ inputs.bucket }}
         CLI_VERSION: ${{ inputs.techdocs-cli-version }}
@@ -105,10 +113,7 @@ runs:
         }
         trap cleanup EXIT
 
-        spire-agent api fetch jwt -audience openbao -socketPath "$SOCKET_PATH" \
-          -output json >"$tmp/svid.json"
-        jq -er 'if type == "array" then .[0] else . end | .svids[0].svid' \
-          "$tmp/svid.json" >"$tmp/jwt"
+        printf '%s' "$SVID" >"$tmp/jwt"
         jq -n --arg role "$BAO_ROLE" --rawfile jwt "$tmp/jwt" \
           '{role: $role, jwt: ($jwt | rtrimstr("\n"))}' >"$tmp/login.json"
         token=$(curl -fsS -X POST --data @"$tmp/login.json" \
