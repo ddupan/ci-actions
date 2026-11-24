@@ -6,7 +6,7 @@ homelab CI（Gitea Actions 与 GitHub Actions）的可复用安全构件。目�
 - `spiffe-openbao-login`：用 runner 的 JWT-SVID 换取短期 OpenBao token，并在 job 的
   post 阶段尽力吊销（失败只告警，token 到 TTL 自然失效）。
 - `setup-nexus`：为匿名读取配置 Ansible Galaxy、Go Modules 与 OCI repository 地址。
-- `setup-artifact-keeper`：让 Go、PyPI、Ansible Galaxy、Maven（Gradle）、npm、Go 工具链、Terraform provider 与 Docker Hub 下载走 Artifact Keeper 的
+- `setup-artifact-keeper`：让 Go、PyPI、uv 与托管 Python、Ansible Galaxy、Maven（Gradle）、npm、Go 工具链、Terraform provider 与 Docker Hub 下载走 Artifact Keeper 的
   匿名 pull-through 缓存。
 - `publish-techdocs`：生成仓库的 TechDocs 并发布到共享的 SeaweedFS `techdocs` bucket。
 - `security-scan`：semgrep、gitleaks、trivy 报告模式扫描，结果汇总为一条 PR 评论。
@@ -78,6 +78,7 @@ Nexus login Action，并绑定精确 SPIFFE ID 与最小 OpenBao policy；不得
     go: 'true'      # GOPROXY；GOPRIVATE=git.ddupan.top 让自有模块直连
     go-version-file: go.mod  # 可选；从缓存装 Go 工具链，替代 actions/setup-go
     pypi: 'true'    # PIP_INDEX_URL、UV_DEFAULT_INDEX
+    uv: 0.11.7      # 可选；从缓存装 uv，替代 astral-sh/setup-uv；隐含 pypi
     ansible: 'true' # ANSIBLE_GALAXY_SERVER
     docker: 'true'  # job dockerd 的 registry-mirrors，以及 buildx 新建 builder 的 BuildKit mirrors
     gradle: 'true'  # init script 把 Maven Central 与 Gradle Plugin Portal 改指缓存
@@ -89,6 +90,11 @@ Nexus login Action，并绑定精确 SPIFFE ID 与最小 OpenBao policy；不得
 
 `go-version-file` 读 `toolchain` 行，没有则读 `go` 行；只写到次版本（`go 1.27`）时取最新补丁版，
 同 actions/setup-go。Go 发行版本身就是 `golang.org/toolchain` 模块，所以从同一个 Go 缓存下载。
+
+`uv` 从缓存的 github-releases 仓库下载 uv 的 release 并校验 sha256，把它和 `~/.local/bin`（`uv tool
+install`、`uv python install` 的可执行文件目录）加进 PATH，并设 `UV_PYTHON_INSTALL_MIRROR`，让
+`uv python install` 也从同一缓存取 python-build-standalone。只接受确切版本号。GitHub 托管的 runner 不经内网，
+用 astral-sh/setup-uv。
 
 `npm` 写 `.npmrc` 而不是环境变量，在容器里跑、`HOME` 挂同一目录的 npm 也能用；npm 会把
 `package-lock.json` 里 registry.npmjs.org 的地址改写到配置的 registry。
