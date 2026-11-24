@@ -10,6 +10,9 @@ inputs:
     default: ''
   pypi:
     default: 'false'
+  uv:
+    description: Install this exact uv version from the cache (GitHub release), replacing astral-sh/setup-uv; implies pypi
+    default: ''
   ansible:
     default: 'false'
   docker:
@@ -35,6 +38,7 @@ runs:
         ENABLE_GO: ${{ inputs.go }}
         GO_VERSION_FILE: ${{ inputs.go-version-file }}
         ENABLE_PYPI: ${{ inputs.pypi }}
+        UV_VERSION_INPUT: ${{ inputs.uv }}
         ENABLE_ANSIBLE: ${{ inputs.ansible }}
         ENABLE_DOCKER: ${{ inputs.docker }}
         ENABLE_GRADLE: ${{ inputs.gradle }}
@@ -66,6 +70,26 @@ runs:
           rm "$RUNNER_TEMP/go.zip"
           echo "$RUNNER_TEMP/go/golang.org/toolchain@$module/bin" >> "$GITHUB_PATH"
           echo "installed Go $version"
+        fi
+        if [[ -n "$UV_VERSION_INPUT" ]]; then
+          # setup-uv downloads from Astral's mirror or GitHub Releases, i.e. over the flaky WAN on every
+          # ephemeral runner; the cache's github-releases repository serves the same release asset.
+          releases="$url/api/v1/repositories/github-releases/download"
+          asset="uv-$(uname -m)-unknown-linux-gnu.tar.gz"
+          base="$releases/astral-sh/uv/releases/download/$UV_VERSION_INPUT"
+          dir="$RUNNER_TEMP/uv-$UV_VERSION_INPUT"
+          mkdir -p "$dir"
+          curl -fsSL --retry 5 --retry-all-errors -o "$dir/$asset" "$base/$asset"
+          curl -fsSL --retry 5 --retry-all-errors -o "$dir/$asset.sha256" "$base/$asset.sha256"
+          (cd "$dir" && sha256sum -c --quiet "$asset.sha256")
+          tar -xzf "$dir/$asset" -C "$dir" --strip-components=1
+          rm "$dir/$asset" "$dir/$asset.sha256"
+          # ~/.local/bin: where `uv tool install` and `uv python install` put executables.
+          printf '%s\n' "$dir" "$HOME/.local/bin" >> "$GITHUB_PATH"
+          # Managed Pythons (python-build-standalone) come through the same cache.
+          echo "UV_PYTHON_INSTALL_MIRROR=$releases/astral-sh/python-build-standalone/releases/download" >> "$GITHUB_ENV"
+          "$dir/uv" --version
+          ENABLE_PYPI=true
         fi
         if [[ "$ENABLE_PYPI" == true ]]; then
           printf '%s\n' "PIP_INDEX_URL=$url/pypi/pypi-proxy/simple/" \
