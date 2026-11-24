@@ -24,6 +24,8 @@ async function main() {
   if (!response.ok) throw new Error(`OpenBao login failed (${response.status}): ${(await response.text()).slice(0, 1000)}`);
   const token = (await response.json())?.auth?.client_token;
   if (!token) throw new Error('OpenBao response contained no client token');
+  // Mask before exporting: every later step prints its env (BAO_TOKEN included) in the job log, which is public.
+  process.stdout.write(`::add-mask::${token}\n`);
   appendCommand(process.env.GITHUB_ENV, 'BAO_ADDR', address);
   appendCommand(process.env.GITHUB_ENV, 'BAO_TOKEN', token);
   appendCommand(process.env.GITHUB_STATE, 'bao_address', address);
