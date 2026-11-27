@@ -32,6 +32,9 @@ Gitea 的 `DEFAULT_ACTIONS_URL` 指向 github.com，所以同一写法在 Gitea 
   和 job 的 GitHub OIDC token 交给 spire-identity-exchange 换 SVID（homelab-infra
   `platform/sandbox-identity-exchange`）。job 需要 `permissions: id-token: write`；SPIFFE ID 是
   `ci/github/<owner>/<repo>/<workflow>`，由 homelab-infra `platform/spire/github-ci.yaml` 的 entry 决定。
+- GitHub 托管 runner 已用 `tailscale/github-action` 进入 tailnet：没有 runner Pod 的 token，只凭 GitHub
+  OIDC token 经 `sandbox-k8s.lab.ddupan.top:8544` 换 SVID（exchange 的 `hosted` stack）。只有专为
+  `hosted` 登记的 entry 能签出身份，目前只有 homelab-infra 的 terraform。
 
 身份注册、OpenBao role 与 policy 仍由基础设施 IaC 管理，Action 不创建或扩大授权。
 
